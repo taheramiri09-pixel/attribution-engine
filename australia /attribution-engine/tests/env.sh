@@ -1,0 +1,17 @@
+export N8N_USER_FOLDER=/home/claude/e2e/n8nhome
+export N8N_BLOCK_ENV_ACCESS_IN_NODE=false
+export NODE_FUNCTION_ALLOW_BUILTIN=crypto
+export PII_ENCRYPTION_KEY=0123456789abcdef0123456789abcdef
+export SM8_KEY_AU_SYD=sm8-key-syd
+export SM8_KEY_AU_MEL=sm8-key-mel
+export XAI_TIMEOUT_MS=3000
+export SLACK_DEFAULT_CHANNEL=C-DEFAULT
+export N8N_PORT=5678
+export N8N_HOST=127.0.0.1
+export N8N_SECURE_COOKIE=false
+export N8N_DIAGNOSTICS_ENABLED=false
+export N8N_PERSONALIZATION_ENABLED=false
+export N8N_RUNNERS_ENABLED=false
+export N8N_ENCRYPTION_KEY=e2e-test-encryption-key
+export PATH=$PWD/node_modules/.bin:$PATH
+export N8N_LISTEN_ADDRESS=0.0.0.0

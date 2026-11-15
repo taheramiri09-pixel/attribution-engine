@@ -1,0 +1,109 @@
+{
+  "id": "AttrWf00aConfig1",
+  "name": "WF-00a Get Location Config",
+  "nodes": [
+    {
+      "parameters": {
+        "inputSource": "passthrough"
+      },
+      "id": "2107b72e-396b-632a-d1b9-e342758487c5",
+      "name": "When Called",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT * FROM locations WHERE location_id = $1::text AND active LIMIT 1;",
+        "options": {
+          "queryReplacement": "={{ [ String($json.location_id || '').toLowerCase().trim() ] }}"
+        }
+      },
+      "id": "10923af1-4245-f8fa-8717-397e0495a51d",
+      "name": "Load Location",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        240,
+        0
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "REPLACE_WITH_CREDENTIAL_ID",
+          "name": "Attribution Postgres"
+        }
+      },
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst row = $input.first().json;\nif (!row || !row.location_id) return [{ json: { found: false } }];\nconst sa = (row.service_area && typeof row.service_area === 'object') ? row.service_area : {};\nconst q = (sa.qualification && typeof sa.qualification === 'object') ? sa.qualification : {};\nconst arr = (v) => Array.isArray(v) ? v.map(String) : [];\nconst num = (v, d) => (typeof v === 'number' && isFinite(v)) ? v : d;\nreturn [{ json: {\n  found: true,\n  location_id: row.location_id,\n  name: row.name,\n  timezone: row.timezone,\n  currency: row.currency,\n  servicem8_credential_ref: row.servicem8_credential_ref, // NAME of the env var that holds this location's ServiceM8 key\n  meta_dataset_id: row.meta_dataset_id,\n  google_customer_id: row.google_customer_id,\n  slack_channel: row.slack_channel,\n  service_types: Array.isArray(row.service_types) ? row.service_types : [],\n  service_area: sa,\n  status_event_map: row.status_event_map || {},\n  platform_limits: row.platform_limits || {},\n  phone_match_window_hours: row.phone_match_window_hours,\n  defaults: {\n    // read from locations.service_area (no schema change): {\"default_country_calling_code\":\"61\",\"postcodes\":[...],\"qualification\":{...}}\n    default_country_calling_code: sa.default_country_calling_code ? String(sa.default_country_calling_code).replace(/\\D/g, '') : null,\n    postcodes: arr(sa.postcodes).map((s) => s.replace(/\\s+/g, '').toUpperCase()).filter(Boolean),\n    min_job_signals: arr(q.min_job_signals),\n    notes: typeof q.notes === 'string' ? q.notes : '',\n    intent_min: num(q.intent_min, 60),         // tunable default, not a benchmark\n    confidence_min: num(q.confidence_min, 0.6) // tunable default, not a benchmark\n  }\n} }];\n"
+      },
+      "id": "c0b9b7ef-4fca-ffa3-ccdc-7eb70e199206",
+      "name": "Shape Config",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        480,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## Get Location Config\nInput: `{location_id}`. Output: `found` plus config. Missing or inactive location returns `found:false`. All per-location values (ServiceM8 key NAME, Meta/Google IDs, Slack channel, postcodes, thresholds) come from the `locations` table.",
+        "height": 130,
+        "width": 560,
+        "color": 4
+      },
+      "id": "2be75526-5c3d-6589-0f0a-0c2c5704db81",
+      "name": "Note",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        -204.0
+      ]
+    }
+  ],
+  "connections": {
+    "When Called": {
+      "main": [
+        [
+          {
+            "node": "Load Location",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load Location": {
+      "main": [
+        [
+          {
+            "node": "Shape Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": false,
+    "saveDataSuccessExecution": "none",
+    "saveDataErrorExecution": "all",
+    "executionTimeout": 300
+  },
+  "tags": [],
+  "meta": {
+    "templateCredsSetupCompleted": false
+  }
+}

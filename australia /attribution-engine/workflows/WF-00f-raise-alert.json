@@ -1,0 +1,312 @@
+{
+  "id": "AttrWf00fAlert01",
+  "name": "WF-00f Raise Alert",
+  "nodes": [
+    {
+      "parameters": {
+        "inputSource": "passthrough"
+      },
+      "id": "b86a9789-30b0-1955-0c77-01314d8f8f62",
+      "name": "When Called",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "WITH c AS (SELECT $1::jsonb AS j),\nprev AS (SELECT a.last_notified_at FROM alerts a, c WHERE a.error_signature = c.j->>'error_signature' AND a.status IN ('open','acknowledged')),\nup AS (\nINSERT INTO alerts (location_id, severity, error_signature, workflow_name, node_name, execution_url, entity_type, entity_id, message, suggested_action, last_notified_at)\nSELECT NULLIF(j->>'location_id',''), COALESCE(NULLIF(j->>'severity',''),'WARNING'), j->>'error_signature', j->>'workflow_name', j->>'node_name',\n       j->>'execution_url', NULLIF(j->>'entity_type',''), j->>'entity_id', left(j->>'message', 2000), j->>'suggested_action', now()\nFROM c\nON CONFLICT (error_signature) WHERE status IN ('open','acknowledged')\nDO UPDATE SET occurrence_count = alerts.occurrence_count + 1, last_seen_at = now(),\n              last_notified_at = CASE WHEN alerts.last_notified_at IS NULL OR alerts.last_notified_at < now() - interval '15 minutes' THEN now() ELSE alerts.last_notified_at END\nRETURNING alert_id, severity, occurrence_count\n)\nSELECT up.alert_id, up.severity, up.occurrence_count,\n       (NOT EXISTS (SELECT 1 FROM prev) OR EXISTS (SELECT 1 FROM prev WHERE last_notified_at IS NULL OR last_notified_at < now() - interval '15 minutes')) AS should_notify\nFROM up;",
+        "options": {
+          "queryReplacement": "={{ [ JSON.stringify($json) ] }}"
+        }
+      },
+      "id": "3544897d-deb0-64a6-426a-c2c6dbef53b0",
+      "name": "Raise Alert",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        240,
+        0
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "REPLACE_WITH_CREDENTIAL_ID",
+          "name": "Attribution Postgres"
+        }
+      },
+      "onError": "continueRegularOutput",
+      "notes": "Alert is written to the DB first; Slack is best effort. 15-minute throttle per error_signature."
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "e1506afc-ea6f-4eaf-ad38-895fc1b66adf",
+              "leftValue": "={{ $json.should_notify === true }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "6b5729d1-f894-c040-4133-6dd4b3fe0848",
+      "name": "Should Notify?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        480,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT slack_channel FROM locations WHERE location_id = $1::text;",
+        "options": {
+          "queryReplacement": "={{ [ String($('When Called').first().json.location_id || '') ] }}"
+        }
+      },
+      "id": "79f5cd77-c0b3-9cf1-0ef3-6ed66ac5febf",
+      "name": "Load Slack Channel",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        720,
+        0
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "REPLACE_WITH_CREDENTIAL_ID",
+          "name": "Attribution Postgres"
+        }
+      },
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst a = $('When Called').first().json;\nconst r = $('Raise Alert').first().json;\nconst row = $input.first().json || {};\nconst channel = row.slack_channel || $env.SLACK_DEFAULT_CHANNEL || '';\nconst icon = { CRITICAL: ':rotating_light:', WARNING: ':warning:', INFO: ':information_source:' }[a.severity] || ':warning:';\nconst lines = [\n  icon + ' *' + (a.severity || 'WARNING') + '* ' + (a.workflow_name || '') + (a.node_name ? ' / ' + a.node_name : '') + (a.location_id ? '  `' + a.location_id + '`' : ''),\n  String(a.message || '').slice(0, 1500),\n  a.suggested_action ? '_Action:_ ' + a.suggested_action : '',\n  (r.occurrence_count > 1 ? 'Occurrences: ' + r.occurrence_count + '  ' : '') + (a.execution_url ? 'Execution: ' + a.execution_url : '')\n].filter(Boolean);\nreturn [{ json: { channel, text: lines.join('\\n'), has_channel: !!channel } }];\n"
+      },
+      "id": "e0139edf-ba50-3060-bf31-f6c96f7b41d4",
+      "name": "Build Slack Message",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        960,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "9cf9fd24-3ee6-4a71-b355-4b9ea54e0a45",
+              "leftValue": "={{ $json.has_channel }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "073a223c-e50e-ec6f-6391-41076182f8f9",
+      "name": "Has Channel?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1200,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://slack.com/api/chat.postMessage",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "slackApi",
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ channel: $json.channel, text: $json.text }) }}",
+        "options": {
+          "timeout": 10000,
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          }
+        }
+      },
+      "id": "79c3e505-6e51-e550-7d30-e04cb886b128",
+      "name": "Post to Slack",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1440,
+        0
+      ],
+      "onError": "continueErrorOutput",
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "credentials": {
+        "slackApi": {
+          "id": "REPLACE_WITH_CREDENTIAL_ID",
+          "name": "Slack account"
+        }
+      },
+      "notes": "Timeout 10s, 3 tries. Failure goes to the error output and is only logged: the alert row already exists in the DB."
+    },
+    {
+      "parameters": {},
+      "id": "2ec08e99-146e-f8b0-81e0-e792ebe00113",
+      "name": "Log Slack Failure",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        1680,
+        204.0
+      ],
+      "notes": "Slack delivery failed; the alert is still stored in the alerts table."
+    },
+    {
+      "parameters": {},
+      "id": "e37a9f6e-d667-c9bc-66bc-a106bbafd5aa",
+      "name": "No Channel",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        1440,
+        204.0
+      ],
+      "notes": "No locations.slack_channel and no SLACK_DEFAULT_CHANNEL: alert stored in DB only."
+    }
+  ],
+  "connections": {
+    "When Called": {
+      "main": [
+        [
+          {
+            "node": "Raise Alert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Raise Alert": {
+      "main": [
+        [
+          {
+            "node": "Should Notify?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Should Notify?": {
+      "main": [
+        [
+          {
+            "node": "Load Slack Channel",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load Slack Channel": {
+      "main": [
+        [
+          {
+            "node": "Build Slack Message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Slack Message": {
+      "main": [
+        [
+          {
+            "node": "Has Channel?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Has Channel?": {
+      "main": [
+        [
+          {
+            "node": "Post to Slack",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "No Channel",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Post to Slack": {
+      "main": [
+        [],
+        [
+          {
+            "node": "Log Slack Failure",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": false,
+    "saveDataSuccessExecution": "none",
+    "saveDataErrorExecution": "all",
+    "executionTimeout": 300
+  },
+  "tags": [],
+  "meta": {
+    "templateCredsSetupCompleted": false
+  }
+}

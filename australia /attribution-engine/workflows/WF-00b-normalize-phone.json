@@ -1,0 +1,58 @@
+{
+  "id": "AttrWf00bPhone01",
+  "name": "WF-00b Normalize Phone",
+  "nodes": [
+    {
+      "parameters": {
+        "inputSource": "passthrough"
+      },
+      "id": "dfdedcbd-3cac-cb4e-e07d-e782e196be23",
+      "name": "When Called",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst inp = $input.first().json;\nconst raw = inp.phone == null ? '' : String(inp.phone).trim();\nconst cc = inp.default_country_calling_code ? String(inp.default_country_calling_code).replace(/\\D/g, '') : '';\nconst out = (e164, valid, reason) => [{ json: { phone_raw: raw || null, phone_e164: e164, phone_valid: valid, reason } }];\nif (!raw) return out(null, false, 'empty');\n\nconst main = raw.replace(/\\s*(?:ext\\.?|extension|x)\\s*\\d+\\s*$/i, '').replace(/^[^\\d+]+/, ''); // drop extensions and leading junk such as 'tel:'\nconst hasPlus = main.startsWith('+');\nconst digits = main.replace(/\\D/g, '');\nif (!digits) return out(null, false, 'no_digits');\n\nlet e164;\nif (hasPlus) e164 = '+' + digits;\nelse if (digits.startsWith('00')) e164 = '+' + digits.slice(2);\nelse if (cc) {\n  // already carries the country code (e.g. 61412345678, 14155552671) vs. a national number (0412 345 678)\n  if (digits.startsWith(cc) && digits.length >= cc.length + 8) e164 = '+' + digits;\n  else e164 = '+' + cc + digits.replace(/^0+/, '');\n} else return out(null, false, 'no_country_code');\n\nif (!/^\\+[1-9]\\d{7,14}$/.test(e164)) return out(null, false, 'invalid_length_or_format');\nif (/^\\+(\\d)\\1+$/.test(e164)) return out(null, false, 'repeated_digit');\nreturn out(e164, true, 'ok');\n"
+      },
+      "id": "74a332e4-fc6e-48c7-eed8-8d83ae0845b7",
+      "name": "Normalize Phone",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        240,
+        0
+      ]
+    }
+  ],
+  "connections": {
+    "When Called": {
+      "main": [
+        [
+          {
+            "node": "Normalize Phone",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": false,
+    "saveDataSuccessExecution": "none",
+    "saveDataErrorExecution": "all",
+    "executionTimeout": 300
+  },
+  "tags": [],
+  "meta": {
+    "templateCredsSetupCompleted": false
+  }
+}

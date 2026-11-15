@@ -1,0 +1,1724 @@
+{
+  "id": "AttrWf01Intake01",
+  "name": "WF-01 Lead Intake",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "lead-intake",
+        "authentication": "headerAuth",
+        "responseMode": "onReceived",
+        "options": {
+          "responseCode": 202,
+          "responseData": "noData"
+        }
+      },
+      "id": "61ab392d-c9b1-630d-45a2-b49fd90b4ab2",
+      "name": "Webhook - Lead Intake",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        0
+      ],
+      "webhookId": "8cffc275-b5e0-0f57-c0e4-f2ea3bb86edc",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "REPLACE_WITH_CREDENTIAL_ID",
+          "name": "Lead intake webhook secret"
+        }
+      },
+      "notes": "Responds 202 immediately (before any DB or external call); everything below runs asynchronously. Header-auth secret lives in an n8n credential."
+    },
+    {
+      "parameters": {
+        "jsCode": "\nfunction requirePiiKey() {\n  var key;\n  try { key = $env.PII_ENCRYPTION_KEY; }\n  catch (e) { throw new Error('Cannot read $env. Self-hosted: set N8N_BLOCK_ENV_ACCESS_IN_NODE=false so PII_ENCRYPTION_KEY and the per-location ServiceM8 keys can be read.'); }\n  if (!key || String(key).length < 16) throw new Error('PII_ENCRYPTION_KEY is missing or shorter than 16 characters. Refusing to process leads without encryption.');\n  return key;\n}\n\nrequirePiiKey(); // fail closed before anything is stored\nconst body = $input.first().json.body;\nconst okBody = body && typeof body === 'object' && !Array.isArray(body);\nreturn [{ json: {\n  raw: okBody ? body : {},\n  location_id: okBody ? String(body.location_id || '').toLowerCase().trim() : '',\n  received_at: new Date().toISOString()\n} }];\n"
+      },
+      "id": "c8d0fe5e-e8bf-54d0-788f-75299ae32ebc",
+      "name": "Parse Request",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        240,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "source": "database",
+        "workflowId": {
+          "__rl": true,
+          "value": "AttrWf00aConfig1",
+          "mode": "id"
+        },
+        "options": {}
+      },
+      "id": "8924d83e-369b-cbaf-e5af-e5f3dc33d6da",
+      "name": "Get Location Config",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        480,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "81878b5a-0cf2-4071-8072-a825db1d8128",
+              "leftValue": "={{ $json.found === true }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "ffe46fdb-91d7-9dcb-e666-48d4ccc5b818",
+      "name": "Location Found?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        720,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst req = $('Parse Request').first().json;\nreturn [{ json: {\n  severity: 'WARNING', error_signature: 'wf01|unknown_location|' + (req.location_id || 'none'),\n  workflow_name: 'WF-01 Lead Intake', node_name: 'Get Location Config',\n  execution_url: '/workflow/' + $workflow.id + '/executions/' + $execution.id,\n  location_id: null, entity_type: null, entity_id: null,\n  message: 'Lead submission rejected: unknown or inactive location_id \"' + String(req.location_id || '').slice(0, 60) + '\".',\n  suggested_action: 'Check the form/ad tracking snippet sends a location_id that exists in locations (active = true).'\n} }];\n"
+      },
+      "id": "f2990e82-04c2-380b-7764-b7164be9f144",
+      "name": "Build Alert Unknown Location",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        960,
+        221.0
+      ]
+    },
+    {
+      "parameters": {
+        "source": "database",
+        "workflowId": {
+          "__rl": true,
+          "value": "AttrWf00fAlert01",
+          "mode": "id"
+        },
+        "options": {}
+      },
+      "id": "2c59f1fa-ac32-f61a-4bb2-dcd3c452d900",
+      "name": "Raise Alert (unknown location)",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        1200,
+        221.0
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst req = $('Parse Request').first().json;\nconst cfg = $input.first().json; // Get Location Config output\nconst raw = req.raw || {};\nconst c = raw.contact && typeof raw.contact === 'object' ? raw.contact : {};\nconst phone = c.phone != null ? c.phone : (raw.phone != null ? raw.phone : '');\nreturn [{ json: { phone, default_country_calling_code: cfg.defaults ? cfg.defaults.default_country_calling_code : null } }];\n"
+      },
+      "id": "b37ac6c1-7d52-2c27-94d0-3edb69936287",
+      "name": "Prepare Phone Input",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        960,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "source": "database",
+        "workflowId": {
+          "__rl": true,
+          "value": "AttrWf00bPhone01",
+          "mode": "id"
+        },
+        "options": {}
+      },
+      "id": "a295d550-9424-44cc-f2d4-276110e096f2",
+      "name": "Normalize Phone",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        1200,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst req = $('Parse Request').first().json;\nconst raw = req.raw || {};\nconst ph = $input.first().json; // Normalize Phone output\nconst c = raw.contact && typeof raw.contact === 'object' ? raw.contact : {};\nconst email = String(c.email != null ? c.email : (raw.email != null ? raw.email : '')).trim().toLowerCase();\n\nfunction stable(v) {\n  if (Array.isArray(v)) return '[' + v.map(stable).join(',') + ']';\n  if (v && typeof v === 'object') return '{' + Object.keys(v).sort().map((k) => JSON.stringify(k) + ':' + stable(v[k])).join(',') + '}';\n  return JSON.stringify(v === undefined ? null : v);\n}\n// Replay protection: a sender-supplied submission_id wins; otherwise a canonical form of the payload.\nconst sid = raw.submission_id ? String(raw.submission_id).trim() : '';\nconst canonical = sid\n  ? 'sid:' + req.location_id + ':' + sid\n  : 'body:' + stable({ location_id: req.location_id, channel: raw.channel, email, phone: ph.phone_e164, message: raw.message,\n      service_requested: raw.service_requested, postcode: raw.postcode, calculator: raw.calculator, tracking: raw.tracking });\nreturn [{ json: { email, phone_e164: ph.phone_e164, canonical_payload: canonical } }];\n"
+      },
+      "id": "a398c84d-fa9a-6ed8-ded7-c116fa6b343a",
+      "name": "Prepare Hash Input",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1440,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "source": "database",
+        "workflowId": {
+          "__rl": true,
+          "value": "AttrWf00cHashPii",
+          "mode": "id"
+        },
+        "options": {}
+      },
+      "id": "0574516f-fc1a-9dad-9f1e-a65463901441",
+      "name": "Hash PII",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        1680,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst req = $('Parse Request').first().json;\nconst raw = req.raw || {};\nconst cfg = $('Get Location Config').first().json;\nconst ph = $('Normalize Phone').first().json;\nconst h = $input.first().json; // Hash PII output\nconst c = raw.contact && typeof raw.contact === 'object' ? raw.contact : {};\nconst pick = (k) => (c[k] != null ? c[k] : raw[k]);\nconst errors = [];\n\nconst CHANNELS = ['form', 'calculator', 'chat', 'sms', 'whatsapp']; // 'phone' is reserved for WF-06\nconst channel = String(raw.channel || '').toLowerCase().trim();\nif (!CHANNELS.includes(channel)) errors.push('invalid_channel');\nconst hasPhone = !!(ph.phone_valid && h.hashed_phone);\nconst hasEmail = !!(h.email_valid && h.hashed_email);\nif (!hasPhone && !hasEmail) errors.push('no_valid_phone_or_email');\nif (!h.payload_hash) errors.push('payload_hash_missing');\n\nconst received = new Date(req.received_at);\nlet occurred = new Date(raw.occurred_at || req.received_at);\nif (isNaN(occurred.getTime()) || occurred.getTime() > received.getTime() + 5 * 60 * 1000) occurred = received; // invalid or future: use receipt time\n\nconst str = (v, n) => (typeof v === 'string' && v.trim() ? v.trim().slice(0, n) : null);\nconst t = raw.tracking && typeof raw.tracking === 'object' ? raw.tracking : {};\nconst u = t.utm && typeof t.utm === 'object' ? t.utm : {};\nconst utm = {};\nfor (const k of ['source', 'medium', 'campaign', 'term', 'content']) {\n  const v = str(u[k] != null ? u[k] : t['utm_' + k], 200);\n  if (v) utm[k] = v;\n}\nconst tracking = {\n  gclid: str(t.gclid, 512), gbraid: str(t.gbraid, 512), wbraid: str(t.wbraid, 512),\n  fbclid: str(t.fbclid, 512), fbp: str(t.fbp, 256), fbc: str(t.fbc, 512), msclkid: str(t.msclkid, 512),\n  utm, landing_page: str(t.landing_page, 1000), referrer: str(t.referrer, 1000)\n};\n\nfunction redact(s) { // keep contact details out of anything sent to an LLM or stored outside the encrypted blob\n  return String(s || '')\n    .replace(/[\\w.+-]+@[\\w-]+\\.[\\w.-]+/g, '[email]')\n    .replace(/(?:\\+?\\d[\\s().-]*){7,}/g, '[phone]')\n    .slice(0, 2000);\n}\nconst message = typeof raw.message === 'string' ? raw.message.slice(0, 5000) : '';\nlet calculator = null;\nif (raw.calculator && typeof raw.calculator === 'object') {\n  try { if (JSON.stringify(raw.calculator).length <= 4000) calculator = raw.calculator; } catch (e) { /* ignore */ }\n}\nconst formTime = Number(raw.form_time_ms);\n\nconst ctx = {\n  location_id: req.location_id,\n  channel,\n  occurred_at: occurred.toISOString(),\n  payload_hash: h.payload_hash,\n  hashed_phone: hasPhone ? h.hashed_phone : null,\n  hashed_phone_meta: hasPhone ? h.hashed_phone_meta : null,\n  hashed_email: hasEmail ? h.hashed_email : null,\n  tracking,\n  service_requested: str(raw.service_requested, 200),\n  postcode: str(raw.postcode != null ? raw.postcode : raw.zip, 20),\n  calculator,\n  message_redacted: redact(message),\n  honeypot: !!(raw.honeypot && String(raw.honeypot).trim()),\n  form_time_ms: isFinite(formTime) && formTime > 0 ? formTime : null,\n  location: { name: cfg.name, currency: cfg.currency, timezone: cfg.timezone, servicem8_credential_ref: cfg.servicem8_credential_ref },\n  // Raw PII. Lives only in this item until the outbox insert, which encrypts it and drops this key.\n  pii: {\n    name: str(pick('name'), 200) || [str(pick('first_name'), 100), str(pick('last_name'), 100)].filter(Boolean).join(' ') || null,\n    phone: hasPhone ? ph.phone_e164 : null,\n    email: hasEmail ? h.email_normalized : null,\n    message: message || null,\n    address: str(pick('address'), 500)\n  }\n};\nreturn [{ json: { valid: errors.length === 0, errors, ctx, raw_body: JSON.stringify(raw) } }];\n"
+      },
+      "id": "6170edae-daf8-4a71-1c72-e2a1cdf82bcc",
+      "name": "Build Lead Context",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1920,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "d270996f-d3b7-4717-8663-c50d8bcb12ad",
+              "leftValue": "={{ $json.valid }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "4ceff232-d82d-3b21-0b07-9a78da7fc64f",
+      "name": "Payload Valid?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        2160,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO outbox (location_id, kind, dedupe_key, payload, status, attempt_count, last_error)\nSELECT $1::text, 'lead_intake', 'lead_rejected:' || $1::text || ':' || md5($2::text),\n       jsonb_build_object('errors', $3::jsonb, 'raw_enc', encode(pgp_sym_encrypt($2::text, $4::text), 'hex')),\n       'dead', 0, 'validation_rejected'\nON CONFLICT (dedupe_key) DO NOTHING\nRETURNING outbox_id;",
+        "options": {
+          "queryReplacement": "={{ [ $('Parse Request').first().json.location_id, $json.raw_body, JSON.stringify($json.errors), $env.PII_ENCRYPTION_KEY ] }}"
+        }
+      },
+      "id": "cb1c9838-38e8-f00c-e02e-1173035f3930",
+      "name": "Park Rejected",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        2400,
+        221.0
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "REPLACE_WITH_CREDENTIAL_ID",
+          "name": "Attribution Postgres"
+        }
+      },
+      "notes": "Invalid payloads are parked (raw body encrypted) in the outbox as status=dead, not dropped."
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst req = $('Parse Request').first().json;\nconst v = $('Build Lead Context').first().json;\nreturn [{ json: {\n  severity: 'INFO', error_signature: 'wf01|payload_rejected|' + req.location_id,\n  workflow_name: 'WF-01 Lead Intake', node_name: 'Build Lead Context',\n  execution_url: '/workflow/' + $workflow.id + '/executions/' + $execution.id,\n  location_id: req.location_id, entity_type: null, entity_id: null,\n  message: 'Lead payload rejected and parked (' + v.errors.join(', ') + ').',\n  suggested_action: 'Inspect the dead outbox row (kind=lead_intake, last_error=validation_rejected) and fix the sending form.'\n} }];\n"
+      },
+      "id": "48d03bfb-3939-22c3-4ebb-8ba23df03939",
+      "name": "Build Alert Rejected",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2640,
+        221.0
+      ]
+    },
+    {
+      "parameters": {
+        "source": "database",
+        "workflowId": {
+          "__rl": true,
+          "value": "AttrWf00fAlert01",
+          "mode": "id"
+        },
+        "options": {}
+      },
+      "id": "bd222a26-3023-e8f8-f697-5dc8d44f3c87",
+      "name": "Raise Alert (rejected)",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        2880,
+        221.0
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "WITH c AS (SELECT $1::jsonb AS j, $2::text AS k),\nins AS (\n  INSERT INTO outbox (location_id, kind, dedupe_key, payload, status, attempt_count, locked_at, locked_by)\n  SELECT j->>'location_id', 'lead_intake', 'lead:' || (j->>'location_id') || ':' || (j->>'payload_hash'),\n         (j - 'pii') || jsonb_build_object('pii_enc', encode(pgp_sym_encrypt((j->'pii')::text, k), 'hex')),\n         'processing', 1, now(), $3::text\n  FROM c\n  ON CONFLICT (dedupe_key) DO NOTHING\n  RETURNING outbox_id, payload\n)\nSELECT outbox_id, payload, true AS claimed FROM ins\nUNION ALL\nSELECT NULL::bigint, NULL::jsonb, false WHERE NOT EXISTS (SELECT 1 FROM ins);",
+        "options": {
+          "queryReplacement": "={{ [ JSON.stringify($json.ctx), $env.PII_ENCRYPTION_KEY, 'wf01:' + $execution.id ] }}"
+        }
+      },
+      "id": "536512a1-64d6-0f55-e28d-2a4cbc719b55",
+      "name": "Insert Outbox (claim)",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        2400,
+        0
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "REPLACE_WITH_CREDENTIAL_ID",
+          "name": "Attribution Postgres"
+        }
+      },
+      "notes": "FIRST write: raw PII is encrypted here (pgp_sym_encrypt) and removed from the payload. Duplicate submissions hit the dedupe_key and return claimed=false."
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "be541957-9ae6-4d97-bdcf-fbe8fb6fc262",
+              "leftValue": "={{ $json.claimed === true }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "a6687348-f999-f5af-734b-c7e9d32e0be7",
+      "name": "New Submission?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        2640,
+        0
+      ]
+    },
+    {
+      "parameters": {},
+      "id": "6e6fc273-124b-dfd0-4400-355a5728a47a",
+      "name": "Duplicate - Stop",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        2880,
+        221.0
+      ],
+      "notes": "Replay of an already-claimed submission: nothing else happens (idempotent)."
+    },
+    {
+      "parameters": {
+        "inputSource": "passthrough"
+      },
+      "id": "2c1429b5-81dd-a7db-7bea-e5f18783d6e7",
+      "name": "When Called by WF-07 (redrive)",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        2400,
+        -255.0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "\nfunction requirePiiKey() {\n  var key;\n  try { key = $env.PII_ENCRYPTION_KEY; }\n  catch (e) { throw new Error('Cannot read $env. Self-hosted: set N8N_BLOCK_ENV_ACCESS_IN_NODE=false so PII_ENCRYPTION_KEY and the per-location ServiceM8 keys can be read.'); }\n  if (!key || String(key).length < 16) throw new Error('PII_ENCRYPTION_KEY is missing or shorter than 16 characters. Refusing to process leads without encryption.');\n  return key;\n}\n\nrequirePiiKey(); // redrive runs enter here without passing Parse Request\nlet row = $input.first().json;\nif (!row || !row.payload) row = $('Insert Outbox (claim)').first().json;\nif (!row || !row.payload || typeof row.payload !== 'object') throw new Error('Context: outbox payload missing');\nreturn [{ json: { outbox_id: row.outbox_id, ctx: row.payload } }];\n"
+      },
+      "id": "8154d0bc-f9b1-a185-8dc1-7f5734b32228",
+      "name": "Context",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2880,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "WITH c AS (SELECT $1::jsonb AS j, $2::text AS k),\np AS (\n  SELECT k,\n         j->>'location_id' AS loc,\n         NULLIF(j->>'hashed_phone', '') AS hp,\n         NULLIF(j->>'hashed_email', '') AS he,\n         (j->>'occurred_at')::timestamptz AS ts,\n         j->>'channel' AS channel,\n         j->'tracking' AS t,\n         pgp_sym_decrypt(decode(j->>'pii_enc', 'hex'), k)::jsonb AS pii\n  FROM c\n),\nbp AS (SELECT l.lead_id FROM leads l, p WHERE l.location_id = p.loc AND p.hp IS NOT NULL AND l.hashed_phone = p.hp AND l.merged_into IS NULL LIMIT 1),\nbe AS (SELECT l.lead_id FROM leads l, p WHERE l.location_id = p.loc AND p.he IS NOT NULL AND l.hashed_email = p.he AND l.merged_into IS NULL LIMIT 1),\ntgt AS (\n  SELECT COALESCE((SELECT lead_id FROM bp), (SELECT lead_id FROM be)) AS lead_id,\n         ((SELECT lead_id FROM bp) IS NOT NULL AND (SELECT lead_id FROM be) IS NOT NULL\n          AND (SELECT lead_id FROM bp) <> (SELECT lead_id FROM be)) AS conflict\n),\nprior AS (SELECT l.lead_id, l.status AS prior_status FROM leads l, tgt WHERE l.lead_id = tgt.lead_id),\nupd AS (\n  UPDATE leads l SET\n    hashed_phone       = COALESCE(l.hashed_phone, p.hp),\n    hashed_email       = CASE WHEN tgt.conflict THEN l.hashed_email ELSE COALESCE(l.hashed_email, p.he) END,\n    phone_enc          = COALESCE(l.phone_enc, CASE WHEN p.pii->>'phone' IS NOT NULL THEN pgp_sym_encrypt(p.pii->>'phone', p.k)::bytea END),\n    email_enc          = COALESCE(l.email_enc, CASE WHEN p.pii->>'email' IS NOT NULL AND NOT tgt.conflict THEN pgp_sym_encrypt(p.pii->>'email', p.k)::bytea END),\n    name_enc           = COALESCE(l.name_enc,  CASE WHEN p.pii->>'name'  IS NOT NULL THEN pgp_sym_encrypt(p.pii->>'name',  p.k)::bytea END),\n    first_touch_at     = COALESCE(l.first_touch_at, p.ts),\n    first_channel      = COALESCE(l.first_channel, p.channel),\n    first_gclid        = COALESCE(l.first_gclid,   p.t->>'gclid'),\n    first_gbraid       = COALESCE(l.first_gbraid,  p.t->>'gbraid'),\n    first_wbraid       = COALESCE(l.first_wbraid,  p.t->>'wbraid'),\n    first_fbclid       = COALESCE(l.first_fbclid,  p.t->>'fbclid'),\n    first_fbp          = COALESCE(l.first_fbp,     p.t->>'fbp'),\n    first_fbc          = COALESCE(l.first_fbc,     p.t->>'fbc'),\n    first_msclkid      = COALESCE(l.first_msclkid, p.t->>'msclkid'),\n    first_utm          = COALESCE(l.first_utm,     NULLIF(p.t->'utm', '{}'::jsonb)),\n    first_landing_page = COALESCE(l.first_landing_page, p.t->>'landing_page'),\n    first_referrer     = COALESCE(l.first_referrer,     p.t->>'referrer'),\n    last_touch_at      = GREATEST(COALESCE(l.last_touch_at, p.ts), p.ts),\n    attribution_status = CASE WHEN COALESCE(l.first_gclid, p.t->>'gclid', l.first_gbraid, p.t->>'gbraid', l.first_wbraid, p.t->>'wbraid',\n                                            l.first_fbclid, p.t->>'fbclid', l.first_fbc, p.t->>'fbc', l.first_msclkid, p.t->>'msclkid') IS NOT NULL\n                              THEN 'attributed' ELSE 'unattributed' END,\n    status             = CASE WHEN l.status IN ('new','qualifying','needs_review','unqualified') THEN 'qualifying' ELSE l.status END\n  FROM tgt, p\n  WHERE l.lead_id = tgt.lead_id\n  RETURNING l.lead_id, l.status\n),\nins AS (\n  INSERT INTO leads (location_id, hashed_phone, hashed_email, phone_enc, email_enc, name_enc,\n                     first_touch_at, first_channel, first_gclid, first_gbraid, first_wbraid, first_fbclid, first_fbp, first_fbc, first_msclkid,\n                     first_utm, first_landing_page, first_referrer, last_touch_at, attribution_status, status)\n  SELECT p.loc, p.hp, p.he,\n         CASE WHEN p.pii->>'phone' IS NOT NULL THEN pgp_sym_encrypt(p.pii->>'phone', p.k)::bytea END,\n         CASE WHEN p.pii->>'email' IS NOT NULL THEN pgp_sym_encrypt(p.pii->>'email', p.k)::bytea END,\n         CASE WHEN p.pii->>'name'  IS NOT NULL THEN pgp_sym_encrypt(p.pii->>'name',  p.k)::bytea END,\n         p.ts, p.channel, p.t->>'gclid', p.t->>'gbraid', p.t->>'wbraid', p.t->>'fbclid', p.t->>'fbp', p.t->>'fbc', p.t->>'msclkid',\n         NULLIF(p.t->'utm', '{}'::jsonb), p.t->>'landing_page', p.t->>'referrer', p.ts,\n         CASE WHEN COALESCE(p.t->>'gclid', p.t->>'gbraid', p.t->>'wbraid', p.t->>'fbclid', p.t->>'fbc', p.t->>'msclkid') IS NOT NULL\n              THEN 'attributed' ELSE 'unattributed' END,\n         'qualifying'\n  FROM p, tgt\n  WHERE tgt.lead_id IS NULL\n  ON CONFLICT DO NOTHING\n  RETURNING lead_id, status\n)\nSELECT u.lead_id, u.status, pr.prior_status, false AS is_new, tgt.conflict AS identity_conflict\nFROM upd u JOIN prior pr ON pr.lead_id = u.lead_id CROSS JOIN tgt\nUNION ALL\nSELECT i.lead_id, i.status, NULL::text, true, false FROM ins i;",
+        "options": {
+          "queryReplacement": "={{ [ JSON.stringify($json.ctx), $env.PII_ENCRYPTION_KEY ] }}"
+        }
+      },
+      "id": "f406f614-07bd-ff79-b05d-214060c9ad16",
+      "name": "Upsert Lead",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        3120,
+        0
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "REPLACE_WITH_CREDENTIAL_ID",
+          "name": "Attribution Postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst base = $('Context').first().json;\nconst up = $('Upsert Lead').first().json;\nif (!up || !up.lead_id) throw new Error('Upsert Lead returned no row (likely a concurrent insert for the same person). The outbox row stays in processing and will be re-driven by WF-07.');\nconst prior = up.prior_status || null;\nreturn [{ json: {\n  outbox_id: base.outbox_id,\n  ctx: base.ctx,\n  lead_id: up.lead_id,\n  lead_status: up.status,\n  prior_status: prior,\n  is_new: up.is_new === true,\n  identity_conflict: up.identity_conflict === true,\n  // Already-qualified and spam leads are not re-scored (saves Grok spend; the QualifiedLead event is idempotent anyway)\n  needs_qualification: !(prior === 'qualified' || prior === 'spam')\n} }];\n"
+      },
+      "id": "42284cc5-91b9-a8c1-1dd4-2e8d94bb9c8b",
+      "name": "Lead Context",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3360,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO lead_touches (lead_id, location_id, is_first, channel, occurred_at, gclid, gbraid, wbraid, fbclid, fbp, fbc, msclkid,\n                          utm, landing_page, referrer, raw_payload, payload_hash)\nSELECT $2::uuid, j->>'location_id', ($3::boolean OR NOT EXISTS (SELECT 1 FROM lead_touches t0 WHERE t0.lead_id = $2::uuid)), j->>'channel', (j->>'occurred_at')::timestamptz,\n       j->'tracking'->>'gclid', j->'tracking'->>'gbraid', j->'tracking'->>'wbraid', j->'tracking'->>'fbclid',\n       j->'tracking'->>'fbp', j->'tracking'->>'fbc', j->'tracking'->>'msclkid',\n       COALESCE(j->'tracking'->'utm', '{}'::jsonb), j->'tracking'->>'landing_page', j->'tracking'->>'referrer',\n       j - 'pii' - 'pii_enc', j->>'payload_hash'\nFROM (SELECT $1::jsonb AS j) q\nON CONFLICT (lead_id, payload_hash) DO NOTHING\nRETURNING touch_id;",
+        "options": {
+          "queryReplacement": "={{ [ JSON.stringify($json.ctx), $json.lead_id, String($json.is_new) ] }}"
+        }
+      },
+      "id": "ae2b9f0c-fa5f-df4e-5d3c-77cdd3e2db9a",
+      "name": "Append Touch",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        3600,
+        0
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "REPLACE_WITH_CREDENTIAL_ID",
+          "name": "Attribution Postgres"
+        }
+      },
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "b1f7cde3-68c8-4e66-87b1-b5adf0168bf5",
+              "leftValue": "={{ $('Lead Context').first().json.identity_conflict }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "d8f0447d-f75e-df8e-afb5-7d3531f426a6",
+      "name": "Identity Conflict?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        3840,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst lc = $('Lead Context').first().json;\nreturn [{ json: {\n  severity: 'WARNING',\n  error_signature: 'wf01|identity_conflict|' + lc.ctx.location_id,\n  workflow_name: 'WF-01 Lead Intake',\n  node_name: 'Upsert Lead',\n  execution_url: '/workflow/' + $workflow.id + '/executions/' + $execution.id,\n  location_id: lc.ctx.location_id,\n  entity_type: 'lead',\n  entity_id: lc.lead_id,\n  message: 'Phone and email on one submission belong to two different leads. Linked to the phone match; the email was NOT attached. Lead ' + lc.lead_id + '.',\n  suggested_action: 'Review both leads and merge manually if they are the same person. WF-01 does not auto-merge.'\n} }];\n"
+      },
+      "id": "ec35e09f-2fe3-61e9-3d79-dbfecd8c1bb6",
+      "name": "Build Alert Identity",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4080,
+        -204.0
+      ]
+    },
+    {
+      "parameters": {
+        "source": "database",
+        "workflowId": {
+          "__rl": true,
+          "value": "AttrWf00fAlert01",
+          "mode": "id"
+        },
+        "options": {}
+      },
+      "id": "7176de9d-b630-e914-eb8a-f41d35db6ef8",
+      "name": "Raise Alert (identity)",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        4320,
+        -204.0
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "aa1346f4-9d7f-4ab9-922c-b1eb15f21afc",
+              "leftValue": "={{ $('Lead Context').first().json.needs_qualification }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "a74a7d84-06a7-06eb-adc5-24de0ddd32f3",
+      "name": "Needs Qualification?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        4560,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst lc = $('Lead Context').first().json;\nconst c = lc.ctx;\nreturn [{ json: {\n  lead_id: lc.lead_id,\n  location_id: c.location_id,\n  channel: c.channel,\n  message: c.message_redacted,          // contact details already redacted\n  service_requested: c.service_requested,\n  postcode: c.postcode,\n  calculator: c.calculator,\n  landing_page: c.tracking.landing_page,\n  utm_source: (c.tracking.utm && c.tracking.utm.source) || null,\n  honeypot: c.honeypot,\n  form_time_ms: c.form_time_ms\n} }];\n"
+      },
+      "id": "dbd41bd5-ddac-bdfc-4d9b-7c6362d262e8",
+      "name": "Prepare Qualification Input",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4800,
+        -102.0
+      ]
+    },
+    {
+      "parameters": {
+        "source": "database",
+        "workflowId": {
+          "__rl": true,
+          "value": "AttrWf02GrokQual",
+          "mode": "id"
+        },
+        "options": {}
+      },
+      "id": "321c3ef3-d330-7b57-e86f-646651e169e2",
+      "name": "Qualify (WF-02)",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        5040,
+        -102.0
+      ],
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst lc = $('Lead Context').first().json;\nreturn [{ json: { decision: lc.prior_status, source: 'existing', lead_id: lc.lead_id } }];\n"
+      },
+      "id": "408af646-4e6f-fb52-4311-714938099857",
+      "name": "Existing Decision",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4800,
+        136.0
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "193fb60d-ce37-4deb-95ba-b977a6957ef1",
+              "leftValue": "={{ $json.decision }}",
+              "rightValue": "qualified",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "db407153-9bb4-c301-f6e4-ef387c9a8025",
+      "name": "Qualified?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        5280,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst lc = $('Lead Context').first().json;\nreturn [{ json: { source_id: lc.lead_id, event_type: 'QualifiedLead', location_id: lc.ctx.location_id } }];\n"
+      },
+      "id": "dffe4f9d-ffe6-7f9e-34c4-50b3d3d25efa",
+      "name": "Prepare Event ID Input",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        5520,
+        -102.0
+      ]
+    },
+    {
+      "parameters": {
+        "source": "database",
+        "workflowId": {
+          "__rl": true,
+          "value": "AttrWf00dEventId",
+          "mode": "id"
+        },
+        "options": {}
+      },
+      "id": "6bcbf10d-ff37-12d7-7042-7fc5386f1ca8",
+      "name": "Build Event ID",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        5760,
+        -102.0
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "WITH c AS (SELECT $1::jsonb AS j),\ne AS (\n  INSERT INTO events (event_id, location_id, lead_id, event_type, event_class, grok_audit_id, source_object, source_uuid,\n                      currency, event_time, click_time, attribution, user_data_hashed, match_method, match_confidence)\n  SELECT j->>'event_id', j->>'location_id', l.lead_id, 'QualifiedLead', 'qualification',\n         (SELECT g.audit_id FROM grok_audit g WHERE g.lead_id = l.lead_id AND g.decision = 'qualified' ORDER BY g.created_at DESC LIMIT 1),\n         'lead', l.lead_id::text,\n         (SELECT currency FROM locations WHERE location_id = j->>'location_id'),\n         now(), l.first_touch_at,\n         jsonb_strip_nulls(jsonb_build_object('gclid', l.first_gclid, 'gbraid', l.first_gbraid, 'wbraid', l.first_wbraid,\n                                              'fbclid', l.first_fbclid, 'fbp', l.first_fbp, 'fbc', l.first_fbc, 'msclkid', l.first_msclkid)),\n         jsonb_strip_nulls(jsonb_build_object('em', l.hashed_email, 'ph', l.hashed_phone, 'ph_meta', NULLIF(j->>'hashed_phone_meta', ''))),\n         'none', 1.00\n  FROM c JOIN leads l ON l.lead_id = (j->>'lead_id')::uuid\n  ON CONFLICT (event_id) DO NOTHING\n  RETURNING event_pk\n),\nd AS (\n  INSERT INTO outbox (location_id, kind, dedupe_key, payload)\n  SELECT j->>'location_id', 'dispatch', 'dispatch:' || (j->>'event_id'),\n         jsonb_build_object('event_id', j->>'event_id', 'event_class', 'qualification')\n  FROM c\n  ON CONFLICT (dedupe_key) DO NOTHING\n  RETURNING outbox_id\n)\nSELECT (SELECT count(*) FROM e)::int AS event_inserted, (SELECT count(*) FROM d)::int AS dispatch_queued;",
+        "options": {
+          "queryReplacement": "={{ [ JSON.stringify({ event_id: $json.event_id, location_id: $('Lead Context').first().json.ctx.location_id, lead_id: $('Lead Context').first().json.lead_id, hashed_phone_meta: $('Lead Context').first().json.ctx.hashed_phone_meta }) ] }}"
+        }
+      },
+      "id": "ea4a3fc8-0071-056e-112a-a64d7d789825",
+      "name": "Insert QualifiedLead Event",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        6000,
+        -102.0
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "REPLACE_WITH_CREDENTIAL_ID",
+          "name": "Attribution Postgres"
+        }
+      },
+      "notes": "Deterministic event_id = sha256(lead_id:QualifiedLead:location_id) + UNIQUE: replays are no-ops. Also queues the dispatch outbox row. Written BEFORE ServiceM8 and before any ad-platform call."
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT pgp_sym_decrypt(decode($1::text, 'hex'), $2::text)::jsonb AS pii,\n       l.servicem8_client_uuid, l.servicem8_job_uuid,\n       md5($3::text || ':sm8:client')::uuid::text AS client_uuid_candidate,\n       md5($3::text || ':sm8:job')::uuid::text    AS job_uuid_candidate\nFROM leads l WHERE l.lead_id = $3::uuid;",
+        "options": {
+          "queryReplacement": "={{ [ $('Lead Context').first().json.ctx.pii_enc, $env.PII_ENCRYPTION_KEY, $('Lead Context').first().json.lead_id ] }}"
+        }
+      },
+      "id": "1fbccaa3-31b0-0b27-3812-de10cf2d9523",
+      "name": "Load PII + ServiceM8 State",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        6240,
+        -102.0
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "REPLACE_WITH_CREDENTIAL_ID",
+          "name": "Attribution Postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst lc = $('Lead Context').first().json;\nconst row = $input.first().json; // Load PII + ServiceM8 State\nconst ctx = lc.ctx;\nconst pii = row.pii || {};\nconst keyEnv = ctx.location && ctx.location.servicem8_credential_ref;\nif (!keyEnv) throw new Error('locations.servicem8_credential_ref is empty for ' + ctx.location_id + ' (it must name the env var holding the ServiceM8 key)');\n\nconst name = String(pii.name || '').trim();\nconst parts = name.split(/\\s+/).filter(Boolean);\nconst first = parts.length ? parts[0] : 'Web';\nconst last = parts.length > 1 ? parts.slice(1).join(' ') : (parts.length ? '' : 'Lead');\nconst clientUuid = row.servicem8_client_uuid || null;\nconst jobUuid = row.servicem8_job_uuid || null;\nconst client_uuid = clientUuid || row.client_uuid_candidate;\nconst job_uuid = jobUuid || row.job_uuid_candidate;\nconst desc = [\n  String(pii.message || '').slice(0, 2000), '',\n  'Source: ' + ctx.channel + (ctx.service_requested ? ' | Service: ' + ctx.service_requested : '') +\n    (ctx.tracking.landing_page ? ' | Page: ' + ctx.tracking.landing_page : '')\n].join('\\n');\n\nreturn [{ json: {\n  sm8_key_env: keyEnv,\n  needs_client: !clientUuid,\n  needs_job: !jobUuid,\n  client_uuid, job_uuid,\n  // Field names below: VERIFY against ServiceM8's Company / CompanyContact / Job schemas in a sandbox account.\n  client_body: { uuid: client_uuid, name: name || 'Web lead', is_individual: 1, active: 1 },\n  contact_body: { company_uuid: client_uuid, first, last, phone: pii.phone || '', mobile: pii.phone || '', email: pii.email || '', is_primary_contact: 1 },\n  job_body_base: { uuid: job_uuid, status: 'Quote', job_description: desc, job_address: pii.address || '' }\n} }];\n"
+      },
+      "id": "238ca0e7-4319-9126-ec8c-24d85db9ce80",
+      "name": "Plan ServiceM8",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        6480,
+        -102.0
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "899dfd75-aeb4-4eff-ba9a-48f8efd1ebda",
+              "leftValue": "={{ $json.needs_client }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "8bffab83-68b3-3118-f814-678555077160",
+      "name": "Needs Client?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        6720,
+        -102.0
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.servicem8.com/api_1.0/company.json",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-API-Key",
+              "value": "={{ $env[$('Plan ServiceM8').first().json.sm8_key_env] }}"
+            },
+            {
+              "name": "Accept",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($('Plan ServiceM8').first().json.client_body) }}",
+        "options": {
+          "timeout": 15000,
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": false
+            }
+          }
+        }
+      },
+      "id": "7cacd3a4-8f53-ecde-6cc7-29cca31cd8f7",
+      "name": "ServiceM8 - Create Client",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        6960,
+        -237.99999999999997
+      ],
+      "onError": "continueErrorOutput",
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 3000,
+      "notes": "Per-location API key is read from the env var named in locations.servicem8_credential_ref. Timeout 15s, 3 tries, error output -> outbox failed + alert. VERIFY endpoint paths, auth header and whether a client-supplied uuid is honoured."
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.servicem8.com/api_1.0/companycontact.json",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-API-Key",
+              "value": "={{ $env[$('Plan ServiceM8').first().json.sm8_key_env] }}"
+            },
+            {
+              "name": "Accept",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($('Plan ServiceM8').first().json.contact_body) }}",
+        "options": {
+          "timeout": 15000,
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": false
+            }
+          }
+        }
+      },
+      "id": "7c98b98a-ea7b-c6e8-c2f8-c13a804ae934",
+      "name": "ServiceM8 - Create Contact",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        7200,
+        -237.99999999999997
+      ],
+      "onError": "continueErrorOutput",
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 3000,
+      "notes": "Per-location API key is read from the env var named in locations.servicem8_credential_ref. Timeout 15s, 3 tries, error output -> outbox failed + alert. VERIFY endpoint paths, auth header and whether a client-supplied uuid is honoured."
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst plan = $('Plan ServiceM8').first().json;\nlet client_uuid = plan.client_uuid;\nif (plan.needs_client) {\n  try {\n    const created = $('ServiceM8 - Create Client').first().json;\n    const hdr = created && created.headers && (created.headers['x-record-uuid'] || created.headers['X-Record-UUID']);\n    if (hdr) client_uuid = String(hdr);\n  } catch (e) { /* client node did not run on this path */ }\n}\nreturn [{ json: Object.assign({}, plan, {\n  client_uuid,\n  job_body: Object.assign({}, plan.job_body_base, { company_uuid: client_uuid })\n}) }];\n"
+      },
+      "id": "05e7eb06-2204-e858-f1aa-c3245799df8f",
+      "name": "Resolve Client",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        7440,
+        -102.0
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE leads\nSET servicem8_client_uuid = COALESCE(servicem8_client_uuid, NULLIF($2::text, '')),\n    servicem8_job_uuid    = COALESCE(servicem8_job_uuid,    NULLIF($3::text, ''))\nWHERE lead_id = $1::uuid\nRETURNING lead_id, servicem8_client_uuid, servicem8_job_uuid;",
+        "options": {
+          "queryReplacement": "={{ [ $('Lead Context').first().json.lead_id, $json.client_uuid, '' ] }}"
+        }
+      },
+      "id": "8203c875-de78-64fb-50a4-b00393468747",
+      "name": "Save ServiceM8 Client ID",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        7680,
+        -102.0
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "REPLACE_WITH_CREDENTIAL_ID",
+          "name": "Attribution Postgres"
+        }
+      },
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "514c8181-0de7-41c3-8077-aaec76480b6d",
+              "leftValue": "={{ $('Plan ServiceM8').first().json.needs_job }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "f2aa14e8-c8ef-35ea-9d2c-2b4bd0a1a759",
+      "name": "Needs Job?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        7920,
+        -102.0
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.servicem8.com/api_1.0/job.json",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-API-Key",
+              "value": "={{ $env[$('Plan ServiceM8').first().json.sm8_key_env] }}"
+            },
+            {
+              "name": "Accept",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($('Resolve Client').first().json.job_body) }}",
+        "options": {
+          "timeout": 15000,
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": false
+            }
+          }
+        }
+      },
+      "id": "2aef0089-30bf-b939-448b-54e9bbba155f",
+      "name": "ServiceM8 - Create Job",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        8160,
+        -237.99999999999997
+      ],
+      "onError": "continueErrorOutput",
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 3000,
+      "notes": "Per-location API key is read from the env var named in locations.servicem8_credential_ref. Timeout 15s, 3 tries, error output -> outbox failed + alert. VERIFY endpoint paths, auth header and whether a client-supplied uuid is honoured."
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst prev = $('Resolve Client').first().json;\nlet job_uuid = prev.job_uuid;\nif (prev.needs_job) {\n  try {\n    const created = $('ServiceM8 - Create Job').first().json;\n    const hdr = created && created.headers && (created.headers['x-record-uuid'] || created.headers['X-Record-UUID']);\n    if (hdr) job_uuid = String(hdr);\n  } catch (e) { /* job node did not run on this path */ }\n}\nreturn [{ json: { client_uuid: prev.client_uuid, job_uuid } }];\n"
+      },
+      "id": "56d00307-beb8-bc14-488c-3c701b8c9b69",
+      "name": "Resolve Job",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        8400,
+        -102.0
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE leads\nSET servicem8_client_uuid = COALESCE(servicem8_client_uuid, NULLIF($2::text, '')),\n    servicem8_job_uuid    = COALESCE(servicem8_job_uuid,    NULLIF($3::text, ''))\nWHERE lead_id = $1::uuid\nRETURNING lead_id, servicem8_client_uuid, servicem8_job_uuid;",
+        "options": {
+          "queryReplacement": "={{ [ $('Lead Context').first().json.lead_id, $json.client_uuid, $json.job_uuid ] }}"
+        }
+      },
+      "id": "e5e2bf83-1bf9-078d-10ac-852ef7ea146e",
+      "name": "Save ServiceM8 IDs",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        8640,
+        -102.0
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "REPLACE_WITH_CREDENTIAL_ID",
+          "name": "Attribution Postgres"
+        }
+      },
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE outbox\nSET status = 'done', processed_at = now(), locked_at = NULL, locked_by = NULL, last_error = NULL\nWHERE outbox_id = $1::bigint\nRETURNING outbox_id, status;",
+        "options": {
+          "queryReplacement": "={{ [ $('Context').first().json.outbox_id ] }}"
+        }
+      },
+      "id": "7e49f47c-a8d1-588a-3d34-76a0e19cf473",
+      "name": "Mark Outbox Done",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        8880,
+        68.0
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "REPLACE_WITH_CREDENTIAL_ID",
+          "name": "Attribution Postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE outbox\nSET status = 'done', processed_at = now(), locked_at = NULL, locked_by = NULL, last_error = NULL\nWHERE outbox_id = $1::bigint\nRETURNING outbox_id, status;",
+        "options": {
+          "queryReplacement": "={{ [ $('Context').first().json.outbox_id ] }}"
+        }
+      },
+      "id": "5cc5057c-af2c-2ded-b1ee-82c13ed4bd6d",
+      "name": "Mark Outbox Done (not qualified)",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        5520,
+        237.99999999999997
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "REPLACE_WITH_CREDENTIAL_ID",
+          "name": "Attribution Postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE outbox\nSET status = CASE WHEN attempt_count >= max_attempts THEN 'dead' ELSE 'failed' END,\n    last_error = left($2::text, 2000),\n    next_attempt_at = now() + make_interval(mins => LEAST(60, power(2, attempt_count)::int)),\n    locked_at = NULL, locked_by = NULL\nWHERE outbox_id = $1::bigint\nRETURNING outbox_id, status, last_error;",
+        "options": {
+          "queryReplacement": "={{ [ $('Context').first().json.outbox_id, JSON.stringify($json.error || $json).slice(0, 1500) ] }}"
+        }
+      },
+      "id": "1baefec5-6742-366d-6ab7-20f1de874b91",
+      "name": "Mark Outbox Failed",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        7200,
+        408.0
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "REPLACE_WITH_CREDENTIAL_ID",
+          "name": "Attribution Postgres"
+        }
+      },
+      "notes": "Backoff and dead-lettering: next_attempt_at doubles per attempt (max 60 min); status=dead once attempt_count >= max_attempts. WF-07 re-drives via WF-01 (redrive)."
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst lc = $('Lead Context').first().json;\nconst failed = $input.first().json; // Mark Outbox Failed output\nconst dead = failed.status === 'dead';\nreturn [{ json: {\n  severity: dead ? 'CRITICAL' : 'WARNING',\n  error_signature: 'wf01|servicem8_sync|' + lc.ctx.location_id,\n  workflow_name: 'WF-01 Lead Intake',\n  node_name: 'ServiceM8 sync',\n  execution_url: '/workflow/' + $workflow.id + '/executions/' + $execution.id,\n  location_id: lc.ctx.location_id,\n  entity_type: 'outbox',\n  entity_id: String(lc.outbox_id),\n  message: 'ServiceM8 client/job creation failed for lead ' + lc.lead_id + ' (outbox ' + lc.outbox_id + ', status ' + failed.status + '): ' + String(failed.last_error || 'unknown error').slice(0, 300),\n  suggested_action: dead ? 'Retries exhausted. Create the client/job manually and resolve the dead_letter row.' : 'WF-07 will retry. The QualifiedLead event was already recorded and is unaffected.'\n} }];\n"
+      },
+      "id": "6282f508-1819-d371-7e77-d212442b73bc",
+      "name": "Build Alert ServiceM8",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        7440,
+        408.0
+      ]
+    },
+    {
+      "parameters": {
+        "source": "database",
+        "workflowId": {
+          "__rl": true,
+          "value": "AttrWf00fAlert01",
+          "mode": "id"
+        },
+        "options": {}
+      },
+      "id": "09983642-51d3-f5fe-9a37-442e3a91de0f",
+      "name": "Raise Alert (servicem8)",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        7680,
+        408.0
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "content": "## WF-01 Lead Intake\n1. Webhook answers 202 at once.\n2. Normalise phone, hash PII, validate.\n3. **Outbox claim first** (PII encrypted). Duplicate = stop.\n4. Upsert lead (first-touch protected), append touch.\n5. WF-02 qualifies (Grok never blocks).\n6. QualifiedLead event written **before** ServiceM8.\n7. ServiceM8 client/contact/job; IDs saved after each step for safe redrive.",
+        "height": 220,
+        "width": 520,
+        "color": 4
+      },
+      "id": "b02d2fd2-1645-eab8-bf2c-002206c2da0f",
+      "name": "Note A",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        -340
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## Setup\nSet `N8N_BLOCK_ENV_ACCESS_IN_NODE=false`, `PII_ENCRYPTION_KEY` (32+ chars), `XAI_MODEL`, and one env var per location holding its ServiceM8 key (name stored in `locations.servicem8_credential_ref`). Assign credentials on the Postgres, Webhook, xAI and Slack nodes.",
+        "height": 170,
+        "width": 520,
+        "color": 6
+      },
+      "id": "3651d653-cf13-44fd-452d-dfafb0fe35c1",
+      "name": "Note B",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        720,
+        -340
+      ]
+    }
+  ],
+  "connections": {
+    "Webhook - Lead Intake": {
+      "main": [
+        [
+          {
+            "node": "Parse Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Request": {
+      "main": [
+        [
+          {
+            "node": "Get Location Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Location Config": {
+      "main": [
+        [
+          {
+            "node": "Location Found?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Location Found?": {
+      "main": [
+        [
+          {
+            "node": "Prepare Phone Input",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Build Alert Unknown Location",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Alert Unknown Location": {
+      "main": [
+        [
+          {
+            "node": "Raise Alert (unknown location)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Phone Input": {
+      "main": [
+        [
+          {
+            "node": "Normalize Phone",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize Phone": {
+      "main": [
+        [
+          {
+            "node": "Prepare Hash Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Hash Input": {
+      "main": [
+        [
+          {
+            "node": "Hash PII",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Hash PII": {
+      "main": [
+        [
+          {
+            "node": "Build Lead Context",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Lead Context": {
+      "main": [
+        [
+          {
+            "node": "Payload Valid?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Payload Valid?": {
+      "main": [
+        [
+          {
+            "node": "Insert Outbox (claim)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Park Rejected",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Park Rejected": {
+      "main": [
+        [
+          {
+            "node": "Build Alert Rejected",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Alert Rejected": {
+      "main": [
+        [
+          {
+            "node": "Raise Alert (rejected)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Insert Outbox (claim)": {
+      "main": [
+        [
+          {
+            "node": "New Submission?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "New Submission?": {
+      "main": [
+        [
+          {
+            "node": "Context",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Duplicate - Stop",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "When Called by WF-07 (redrive)": {
+      "main": [
+        [
+          {
+            "node": "Context",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Context": {
+      "main": [
+        [
+          {
+            "node": "Upsert Lead",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Upsert Lead": {
+      "main": [
+        [
+          {
+            "node": "Lead Context",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Lead Context": {
+      "main": [
+        [
+          {
+            "node": "Append Touch",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Append Touch": {
+      "main": [
+        [
+          {
+            "node": "Identity Conflict?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Identity Conflict?": {
+      "main": [
+        [
+          {
+            "node": "Build Alert Identity",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Needs Qualification?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Alert Identity": {
+      "main": [
+        [
+          {
+            "node": "Raise Alert (identity)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Raise Alert (identity)": {
+      "main": [
+        [
+          {
+            "node": "Needs Qualification?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Needs Qualification?": {
+      "main": [
+        [
+          {
+            "node": "Prepare Qualification Input",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Existing Decision",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Qualification Input": {
+      "main": [
+        [
+          {
+            "node": "Qualify (WF-02)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Qualify (WF-02)": {
+      "main": [
+        [
+          {
+            "node": "Qualified?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Mark Outbox Failed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Existing Decision": {
+      "main": [
+        [
+          {
+            "node": "Qualified?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Qualified?": {
+      "main": [
+        [
+          {
+            "node": "Prepare Event ID Input",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Mark Outbox Done (not qualified)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Event ID Input": {
+      "main": [
+        [
+          {
+            "node": "Build Event ID",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Event ID": {
+      "main": [
+        [
+          {
+            "node": "Insert QualifiedLead Event",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Insert QualifiedLead Event": {
+      "main": [
+        [
+          {
+            "node": "Load PII + ServiceM8 State",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load PII + ServiceM8 State": {
+      "main": [
+        [
+          {
+            "node": "Plan ServiceM8",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Plan ServiceM8": {
+      "main": [
+        [
+          {
+            "node": "Needs Client?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Needs Client?": {
+      "main": [
+        [
+          {
+            "node": "ServiceM8 - Create Client",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Resolve Client",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "ServiceM8 - Create Client": {
+      "main": [
+        [
+          {
+            "node": "ServiceM8 - Create Contact",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Mark Outbox Failed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "ServiceM8 - Create Contact": {
+      "main": [
+        [
+          {
+            "node": "Resolve Client",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Mark Outbox Failed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Resolve Client": {
+      "main": [
+        [
+          {
+            "node": "Save ServiceM8 Client ID",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save ServiceM8 Client ID": {
+      "main": [
+        [
+          {
+            "node": "Needs Job?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Needs Job?": {
+      "main": [
+        [
+          {
+            "node": "ServiceM8 - Create Job",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Resolve Job",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "ServiceM8 - Create Job": {
+      "main": [
+        [
+          {
+            "node": "Resolve Job",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Mark Outbox Failed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Resolve Job": {
+      "main": [
+        [
+          {
+            "node": "Save ServiceM8 IDs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save ServiceM8 IDs": {
+      "main": [
+        [
+          {
+            "node": "Mark Outbox Done",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mark Outbox Failed": {
+      "main": [
+        [
+          {
+            "node": "Build Alert ServiceM8",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Alert ServiceM8": {
+      "main": [
+        [
+          {
+            "node": "Raise Alert (servicem8)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": false,
+    "saveDataSuccessExecution": "none",
+    "saveDataErrorExecution": "all",
+    "executionTimeout": 900
+  },
+  "tags": [],
+  "meta": {
+    "templateCredsSetupCompleted": false
+  }
+}

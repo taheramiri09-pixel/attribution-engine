@@ -1,0 +1,91 @@
+%% Attribution engine: architecture and data flow
+%% Rule: the revenue path (ServiceM8 -> WF-03 -> WF-04 -> events -> WF-05) has NO dependency on Grok.
+%% Grok only gates qualification events (WF-01 -> WF-02).
+flowchart TD
+
+  subgraph CAPTURE["Capture (browser and channels)"]
+    CH["Web forms, quote calculator, web chat,<br/>SMS, WhatsApp"]
+    SNIP["First-party JS snippet or sGTM (Stape)<br/>gclid, gbraid, wbraid, fbclid, fbp, fbc,<br/>msclkid, UTMs, landing page, referrer, location_id"]
+    PBX["Phone system, Twilio or PBX call logs"]
+    CH --> SNIP
+  end
+
+  subgraph EXT["External services"]
+    GROK["xAI Grok API<br/>OpenAI-compatible, JSON schema output"]
+    SM8["ServiceM8<br/>API and webhooks: Job, Job Payment"]
+    META["Meta Conversions API"]
+    GADS["Google Ads<br/>offline click conversions,<br/>Enhanced Conversions for Leads"]
+    SLACK["Slack, with SMS or email escalation"]
+  end
+
+  subgraph N8N["n8n (self-hosted, queue mode)"]
+    WF00["WF-00 Shared config and sub-workflows<br/>hash_pii, normalize_phone,<br/>build_event_id, call_grok"]
+    WF01["WF-01 Lead Intake<br/>validate, respond 200, upsert lead,<br/>write outbox, route result"]
+    WF02["WF-02 Grok Qualification<br/>retry, re-prompt, rules fallback"]
+    WF03["WF-03 ServiceM8 Webhook Receiver<br/>challenge, respond 200, enqueue UUID"]
+    WF04["WF-04 Job Processor<br/>fetch job, match lead,<br/>build deterministic event_id"]
+    WF05["WF-05 Conversion Dispatcher<br/>per-destination send and status"]
+    WF06["WF-06 Phone Call Bridge<br/>match caller to lead or mark unattributed"]
+    WF07["WF-07 Retry and Dead-Letter<br/>scheduled every 5 to 10 min"]
+    WF08["WF-08 Daily Reconciliation<br/>scheduled"]
+    WF99["WF-99 Global Alerts<br/>Error Workflow and alert webhook"]
+  end
+
+  subgraph DB["Postgres or Supabase (ledger)"]
+    T_LOC[("locations")]
+    T_LEADS[("leads")]
+    T_TOUCH[("lead_touches")]
+    T_OUT[("outbox")]
+    T_EVT[("events<br/>UNIQUE event_id")]
+    T_ATT[("dispatch_attempts")]
+    T_DL[("dead_letter")]
+    T_ALERT[("alerts")]
+    T_GROK[("grok_audit")]
+  end
+
+  %% Qualification path (Grok-gated)
+  SNIP -->|"webhook POST"| WF01
+  WF01 -->|"upsert, keep first touch"| T_LEADS
+  WF01 -->|"append touch"| T_TOUCH
+  WF01 -->|"write BEFORE any external call"| T_OUT
+  WF01 --> WF02
+  WF02 -->|"HTTPS, JSON schema"| GROK
+  WF02 -->|"model, prompt version, raw response, decision"| T_GROK
+  WF02 -->|"qualified, unqualified, spam, needs_review"| WF01
+  WF01 -->|"qualified: create client and job"| SM8
+  WF01 -->|"QualifiedLead event (class: qualification)"| T_EVT
+  WF01 -->|"needs_review"| WF99
+
+  %% Revenue path (no Grok)
+  SM8 -->|"webhook: UUID and resource_url only"| WF03
+  WF03 -->|"dedupe_key, then stop"| T_OUT
+  T_OUT -->|"queue-driven"| WF04
+  WF04 -->|"fetch Job, Client, Payment"| SM8
+  WF04 -->|"match: job_uuid, then phone hash, then email hash"| T_LEADS
+  WF04 -->|"INSERT ON CONFLICT DO NOTHING (class: revenue)"| T_EVT
+  T_EVT --> WF05
+  WF05 -->|"hashed user data, fbc, fbp, value, event_id"| META
+  WF05 -->|"gclid, gbraid, wbraid, order_id = event_id"| GADS
+  WF05 --> T_ATT
+  WF05 -->|"retries exhausted"| T_DL
+
+  %% Phone bridge
+  PBX --> WF06
+  WF06 -->|"match within window"| T_LEADS
+  WF06 --> T_TOUCH
+
+  %% Resilience and ops
+  WF07 -->|"re-process pending or failed"| T_OUT
+  WF07 -->|"exhausted"| T_DL
+  WF08 -->|"closed or paid jobs vs sent events"| T_EVT
+  WF08 -->|"closed or paid jobs, last 24h"| SM8
+  WF08 --> WF99
+  T_DL --> WF99
+  WF99 --> T_ALERT
+  WF99 -->|"throttled, severity-classified"| SLACK
+
+  %% Config
+  T_LOC -.->|"per-location settings"| WF00
+  WF00 -.-> WF01
+  WF00 -.-> WF04
+  WF00 -.-> WF05

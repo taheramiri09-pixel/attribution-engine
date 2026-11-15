@@ -1,0 +1,4 @@
+[{"id":"PgCred000000001","name":"Attribution Postgres","type":"postgres","data":{"host":"127.0.0.1","port":5432,"database":"attrib","user":"n8nuser","password":"REPLACE_ME","ssl":"disable","allowUnauthorizedCerts":false,"sshTunnel":false}},
+{"id":"XaiCred00000001","name":"xAI API key","type":"httpHeaderAuth","data":{"name":"Authorization","value":"Bearer REPLACE_ME"}},
+{"id":"WhkCred00000001","name":"Lead intake webhook secret","type":"httpHeaderAuth","data":{"name":"X-Intake-Secret","value":"REPLACE_ME"}},
+{"id":"SlkCred00000001","name":"Slack account","type":"slackApi","data":{"accessToken":"REPLACE_ME"}}]
